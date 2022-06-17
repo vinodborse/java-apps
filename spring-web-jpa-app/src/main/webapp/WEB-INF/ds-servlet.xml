@@ -34,9 +34,9 @@
 		class="org.springframework.jdbc.datasource.DriverManagerDataSource"
 		name="dataSource">
 		<property name="driverClassName" value="com.mysql.cj.jdbc.Driver" />
-		<property name="url" value="jdbc:mysql://localhost:3306/testing_shastra" />
-		<property name="username" value="root" />
-		<property name="password" value="root" />
+		<property name="url" value="jdbc:mysql://localhost:3306/<YOUR_DB_NAME>" />
+		<property name="username" value="<YOUR_DB_USER_NAME>" />
+		<property name="password" value="<YOUR_DB_PASSWORD>" />
 	</bean>
 
 	<bean
