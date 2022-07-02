@@ -8,7 +8,7 @@ public class SampleController {
 	
 	@GetMapping("/app")
 	public String sample() {
-		return "You are in FILMY DUNIYA.!!!!";
+		return "hello..";
 	}
 
 }
