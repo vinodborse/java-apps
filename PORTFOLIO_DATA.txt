@@ -1,0 +1,294 @@
+// ------------------------
+// EHHierarchyRow.java
+// ------------------------
+
+package com.eh.dto;
+
+import org.springframework.beans.factory.annotation.Value;
+
+public interface EHHierarchyRow {
+    Integer getId();
+    String getName();
+    Integer getParentId();
+
+    @Value("#{target.project_id != null ? target.project_id : 0}")
+    int getProjectId();
+
+    @Value("#{target.project_key != null ? target.project_key : ''}")
+    String getProjectKey();
+
+    @Value("#{target.project_name != null ? target.project_name : ''}")
+    String getProjectName();
+
+    String getType();
+}
+
+
+// ------------------------
+// EHNodeDTO.java
+// ------------------------
+package com.eh.dto;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class EHNodeDTO {
+    private String type;
+    private int id;
+    private String name;
+    private String app_name;
+    private List<EHNodeDTO> children = new ArrayList<>();
+
+    public EHNodeDTO() {}
+
+    public EHNodeDTO(String type, int id, String name, String app_name) {
+        this.type = type;
+        this.id = id;
+        this.name = name;
+        this.app_name = app_name;
+    }
+
+    public void addChild(EHNodeDTO child) {
+        this.children.add(child);
+    }
+
+    // Getters and Setters
+    public String getType() { return type; }
+    public void setType(String type) { this.type = type; }
+    public int getId() { return id; }
+    public void setId(int id) { this.id = id; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getApp_name() { return app_name; }
+    public void setApp_name(String app_name) { this.app_name = app_name; }
+    public List<EHNodeDTO> getChildren() { return children; }
+    public void setChildren(List<EHNodeDTO> children) { this.children = children; }
+}
+
+
+// ------------------------
+// EHPortfolio.java
+// ------------------------
+
+package com.eh.model;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "eh_portfolio_details")
+public class EHPortfolio {
+
+    @Id
+    private Integer id;
+    private String name;
+    private Integer parentId;
+
+    // Getters and setters
+    public Integer getId() { return id; }
+    public void setId(Integer id) { this.id = id; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public Integer getParentId() { return parentId; }
+    public void setParentId(Integer parentId) { this.parentId = parentId; }
+}
+
+
+
+// ------------------------
+// EHPortfolioRepository.java
+// ------------------------
+package com.eh.dao;
+
+import com.eh.dto.EHHierarchyRow;
+import com.eh.model.EHPortfolio;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface EHPortfolioRepository extends JpaRepository<EHPortfolio, Integer> {
+
+    @Query(value = """
+    WITH RECURSIVE hierarchy AS (
+        SELECT 
+            id, 
+            name, 
+            parent_id, 
+            0 AS project_id, 
+            CAST('' AS CHAR(255)) AS project_key, 
+            CAST('' AS CHAR(255)) AS project_name, 
+            'portfolio' AS type
+        FROM eh_portfolio_details WHERE id = :rootId
+        
+        UNION ALL
+        
+        SELECT 
+            p.id, 
+            p.name, 
+            p.parent_id, 
+            0, 
+            CAST('' AS CHAR(255)), 
+            CAST('' AS CHAR(255)), 
+            'portfolio'
+        FROM eh_portfolio_details p
+        INNER JOIN hierarchy h ON p.parent_id = h.id
+        
+        UNION ALL
+        
+        SELECT 
+            0, 
+            CAST('' AS CHAR(255)), 
+            pp.portfolio_id, 
+            pr.id, 
+            pr.`key`, 
+            pr.name, 
+            'project'
+        FROM eh_project_portfolio_details pp
+        JOIN eh_project_details pr ON pp.project_id = pr.id
+        JOIN hierarchy h ON h.id = pp.portfolio_id
+    )
+    SELECT * FROM hierarchy
+    """, nativeQuery = true)
+    List<EHHierarchyRow> findHierarchyByRootId(@Param("rootId") int rootId);
+}
+
+
+
+// ------------------------
+// EHPortfolioService.java
+// ------------------------
+package com.eh.service;
+
+import com.eh.dto.EHNodeDTO;
+
+public interface EHPortfolioService {
+    EHNodeDTO getPortfolioTree(int rootId);
+}
+
+
+// ------------------------
+// EHPortfolioServiceImpl.java
+// ------------------------
+package com.eh.service;
+
+
+import com.eh.dao.EHPortfolioRepository;
+import com.eh.dto.EHHierarchyRow;
+import com.eh.dto.EHNodeDTO;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+
+@Service
+public class EHPortfolioServiceImpl implements EHPortfolioService {
+
+    @Autowired
+    private EHPortfolioRepository repository;
+
+    public EHNodeDTO getPortfolioTree(int rootId) {
+        List<EHHierarchyRow> rows = repository.findHierarchyByRootId(rootId);
+
+        Map<Integer, EHNodeDTO> nodeMap = new HashMap<>();
+        Map<Integer, Integer> parentMap = new HashMap<>();
+
+        for (EHHierarchyRow row : rows) {
+            if ("portfolio".equals(row.getType())) {
+                // Skip dummy rows
+                if (row.getId() == 0) continue;
+
+                EHNodeDTO node = new EHNodeDTO(
+                        "portfolio",
+                        row.getId(),
+                        row.getName(),
+                        null
+                );
+                nodeMap.put(row.getId(), node);
+                if (row.getParentId() != null) {
+                    parentMap.put(row.getId(), row.getParentId());
+                }
+            } else if ("project".equals(row.getType())) {
+                // Skip dummy rows
+                if (row.getProjectId() == 0) continue;
+
+                EHNodeDTO projectNode = new EHNodeDTO(
+                        "project",
+                        row.getProjectId(),
+                        row.getProjectKey().trim(), // Trim to handle empty strings
+                        row.getProjectName().trim()
+                );
+                EHNodeDTO parent = nodeMap.get(row.getParentId());
+                if (parent != null) {
+                    parent.addChild(projectNode);
+                }
+            }
+        }
+
+        // Build hierarchy
+        for (Map.Entry<Integer, Integer> entry : parentMap.entrySet()) {
+            EHNodeDTO child = nodeMap.get(entry.getKey());
+            EHNodeDTO parent = nodeMap.get(entry.getValue());
+            if (child != null && parent != null && shouldInclude(child)) {
+                parent.addChild(child);
+            }
+        }
+
+        return nodeMap.get(rootId);
+    }
+
+    private boolean shouldInclude(EHNodeDTO node) {
+        if ("project".equals(node.getType())) return true;
+        return node.getChildren() != null && !node.getChildren().isEmpty();
+    }
+}
+
+
+
+// ------------------------
+// EHPortfolioController.java
+// ------------------------
+
+package com.eh.controller;
+
+import com.eh.dto.EHNodeDTO;
+import com.eh.service.EHPortfolioService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/eh")
+public class EHPortfolioController {
+
+    @Autowired
+    private EHPortfolioService ehPortfolioService;
+
+    @GetMapping("/portfolio/{id}")
+    public ResponseEntity<?> getPortfolioById(@PathVariable int id) {
+        try {
+            EHNodeDTO result = ehPortfolioService.getPortfolioTree(id);
+            if (result == null) {
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of(
+                            "error", "Failed to process request",
+                            "message", e.getMessage()
+                    ));
+        }
+    }
+}
